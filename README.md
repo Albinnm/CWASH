@@ -2,6 +2,8 @@
 
 Mobile car detailing reservations for New York City, with a customer website and a protected owner dashboard.
 
+The native iPhone/Android application is in [`mobile/`](mobile/README.md). It uses React Native screens and connects to this backend. Read the mobile guide for Expo Go device testing and signed standalone builds. The native app is not yet published to either app store.
+
 ## Start on your computer
 
 Install **Node.js 24 LTS** (includes npm). In a terminal inside this project, run:

@@ -89,8 +89,22 @@ export function createApp({ store, rateLimits = true, production = false }) {
     if (!store.getCatalog().settings.zipPrefixes.some(prefix => input.zip.startsWith(prefix))) return fail(res, 400, 'This ZIP code is outside our current service area.');
     if (!getSlots(store, { date: input.date, duration: selected.duration }).includes(input.time)) return fail(res, 409, 'That appointment is no longer available. Please choose another time.');
     const b = { ...input, id: randomUUID(), reference: `CW-${randomBytes(5).toString('hex').toUpperCase()}`, status: 'pending', serviceName: selected.service.name, vehicleName: selected.vehicle.name, total: selected.total, duration: selected.duration, createdAt: new Date().toISOString() };
-    store.db.prepare('INSERT INTO bookings (id,reference,date,time,status,value) VALUES (?,?,?,?,?,?)').run(b.id, b.reference, b.date, b.time, b.status, JSON.stringify(b));
-    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration } });
+    const accessToken = randomBytes(32).toString('hex');
+    store.db.exec('BEGIN IMMEDIATE');
+    try {
+      store.db.prepare('INSERT INTO bookings (id,reference,date,time,status,value) VALUES (?,?,?,?,?,?)').run(b.id, b.reference, b.date, b.time, b.status, JSON.stringify(b));
+      store.db.prepare('INSERT INTO booking_access (booking_id,token_hash) VALUES (?,?)').run(b.id, tokenHash(accessToken));
+      store.db.exec('COMMIT');
+    } catch (error) { store.db.exec('ROLLBACK'); throw error; }
+    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration, accessToken } });
+  });
+  app.get('/api/bookings/:reference', (req, res) => {
+    const token = req.headers.authorization?.replace(/^Bearer /, '');
+    if (!token || !/^[a-f0-9]{64}$/.test(token)) return fail(res, 401, 'A valid booking access key is required.');
+    const row = store.db.prepare('SELECT bookings.value FROM bookings JOIN booking_access ON bookings.id=booking_access.booking_id WHERE bookings.reference=? AND booking_access.token_hash=?').get(req.params.reference, tokenHash(token));
+    if (!row) return fail(res, 401, 'A valid booking access key is required.');
+    const b = JSON.parse(row.value);
+    res.json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration } });
   });
   app.get('/api/admin/session', (req, res) => {
     const s = session(req);

@@ -10,6 +10,26 @@ import { createApp } from '../server/app.js';
 const ADMIN_EMAIL = 'owner@example.test';
 const ADMIN_PASSWORD = 'Test-only-password-8!';
 
+test('mobile receipt keys expose only their own booking and reflect admin updates', async t => {
+  const { request, login, available, book, adminBooking } = await fixture(t);
+  const first = await book(await available());
+  const other = await book(await available(10));
+  assert.match(first.accessToken, /^[a-f0-9]{64}$/);
+  assert.equal((await request(`/api/bookings/${first.reference}`)).status, 401);
+  assert.equal((await request(`/api/bookings/${first.reference}`, { headers: { Authorization: `Bearer ${other.accessToken}` } })).status, 401);
+  const headers = { Authorization: `Bearer ${first.accessToken}` };
+  const result = await request(`/api/bookings/${first.reference}`, { headers });
+  assert.equal(result.status, 200);
+  assert.equal(result.data.booking.status, 'pending');
+  assert.equal(result.data.booking.email, undefined);
+  assert.equal(result.data.booking.accessToken, undefined);
+  const auth = await login();
+  const saved = await adminBooking(auth, first.reference);
+  assert.equal(saved.accessToken, undefined);
+  await request(`/api/admin/bookings/${saved.id}`, { method: 'PATCH', auth, body: { status: 'confirmed' } });
+  assert.equal((await request(`/api/bookings/${first.reference}`, { headers })).data.booking.status, 'confirmed');
+});
+
 function futureDate(offset = 3) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offset);

@@ -42,6 +42,7 @@ export function createStore({ dataDir = process.env.CWASH_DATA_DIR || './data', 
     CREATE TABLE IF NOT EXISTS services (id TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, reference TEXT UNIQUE NOT NULL, date TEXT NOT NULL, time TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS bookings_day ON bookings(date,status);
+    CREATE TABLE IF NOT EXISTS booking_access (booking_id TEXT PRIMARY KEY REFERENCES bookings(id), token_hash TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS admins (id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, admin_id INTEGER REFERENCES admins(id), csrf TEXT NOT NULL, expires INTEGER NOT NULL);
   `);
