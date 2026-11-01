@@ -33,7 +33,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "export": "expo export --platform android --platform ios",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "iphone:build": "npx --yes eas-cli@27.2.0 build --platform ios --profile testflight --auto-submit"
   },
   "private": true
 }

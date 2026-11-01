@@ -4,6 +4,8 @@ Mobile car detailing reservations for New York City, with a customer website and
 
 The native iPhone/Android application is in [`mobile/`](mobile/README.md). It uses React Native screens and connects to this backend. Read the mobile guide for Expo Go device testing and signed standalone builds. The native app is not yet published to either app store.
 
+**Want to open CWASH on your iPhone without running your computer?** Follow the [independent iPhone setup guide](docs/IPHONE-SETUP.md). The hosted backend blueprint and TestFlight build command are ready for account setup; no hosted service or signed build exists yet.
+
 ## Start on your computer
 
 Install **Node.js 24 LTS** (includes npm). In a terminal inside this project, run:
@@ -48,7 +50,9 @@ Booking references appear on the customer confirmation screen. **No email, SMS, 
 
 The database is stored in ignored `data/cwash.sqlite` by default, or the folder selected by `CWASH_DATA_DIR`. Admin accounts, bookings, settings, and sessions persist there. Keep the folder private and back it up with a SQLite-aware backup or while the server is stopped. Do not commit customer data or `.env`.
 
-This is a working development MVP; it is not publicly deployed. Before accepting real customer data, deploy behind HTTPS, set `COOKIE_SECURE=true`, configure a persistent private database volume and backups, set your privacy/cancellation terms, and review your NYC operating requirements. Use a single app instance for this SQLite/single-crew version. Proxy trust is intentionally not enabled; configure the exact trusted proxy topology before public deployment so rate limits use reliable client addresses.
+This is a working development MVP; it is not publicly deployed. Before accepting real customer data, deploy behind HTTPS, set `COOKIE_SECURE=true`, configure a persistent private database volume and backups, set your privacy/cancellation terms, and review your NYC operating requirements. Use a single app instance for this SQLite/single-crew version. Proxy trust defaults to zero; set `CWASH_TRUST_PROXY_HOPS` only for the verified proxy topology. `CWASH_PUBLIC_ORIGIN` (or Render's `RENDER_EXTERNAL_URL`) controls the exact permitted browser origin. The supplied Render blueprint assumes one proxy hop and must be checked on the real deployment.
+
+Optional `CWASH_INITIAL_ADMIN_EMAIL` and `CWASH_INITIAL_ADMIN_PASSWORD` host settings create the first admin on an empty database. They never change an existing account. Enter them privately in hosting settings, verify login, then remove both variables. Existing local databases are not uploaded automatically.
 
 ## Checks
 

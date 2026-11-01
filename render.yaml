@@ -1,0 +1,34 @@
+# Preparation only: importing this Blueprint creates a PAID service and disk.
+# Review Render's displayed prices before deploying. Keep one instance with SQLite.
+services:
+  - type: web
+    name: cwash
+    runtime: node
+    plan: starter
+    region: virginia
+    buildCommand: npm ci --include=dev --no-fund --no-audit && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: false
+    disk:
+      name: cwash-data
+      mountPath: /var/data/cwash
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CWASH_DATA_DIR
+        value: /var/data/cwash
+      # Assumes one trusted reverse proxy; verify on the deployed service.
+      - key: CWASH_TRUST_PROXY_HOPS
+        value: "1"
+      - key: CWASH_INITIAL_ADMIN_EMAIL
+        sync: false
+      - key: CWASH_INITIAL_ADMIN_PASSWORD
+        sync: false

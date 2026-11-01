@@ -12,7 +12,8 @@
     "start": "node server/index.js --production",
     "test": "node --test tests/*.test.js",
     "admin:create": "node server/create-admin.js",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "hosted:check": "node scripts/check-hosted-api.js"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { hashPassword, verifyPassword } from './store.js';
 import { getSlots, validDate, TIMEZONE } from './scheduling.js';
+import { deploymentSettings } from './deployment.js';
 
 const dateSchema = z.string().refine(validDate, 'Enter a valid date.');
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -38,9 +39,10 @@ function selection(store, serviceId, vehicleId) {
   return service && vehicle ? { service, vehicle, total: service.price + vehicle.surcharge, duration: service.duration + vehicle.durationExtra } : null;
 }
 
-export function createApp({ store, rateLimits = true, production = false }) {
+export function createApp({ store, rateLimits = true, production = false, deployment = deploymentSettings({ production }) }) {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', deployment.trustProxyHops);
   app.use(helmet({ contentSecurityPolicy: production ? { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:'], connectSrc: ["'self'"], upgradeInsecureRequests: null } } : false, strictTransportSecurity: process.env.COOKIE_SECURE === 'true' ? undefined : false }));
   app.use(express.json({ limit: '20kb' }));
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -67,13 +69,20 @@ export function createApp({ store, rateLimits = true, production = false }) {
     if (!['GET','HEAD','OPTIONS'].includes(req.method)) {
       if (req.headers['sec-fetch-site'] === 'cross-site') return fail(res, 403, 'Cross-site requests are not allowed.');
       if (req.headers.origin) {
-        try { if (new URL(req.headers.origin).host !== req.headers.host) return fail(res, 403, 'Cross-site requests are not allowed.'); }
+        try {
+          const origin = new URL(req.headers.origin);
+          if (!['http:', 'https:'].includes(origin.protocol) || origin.origin !== req.headers.origin) return fail(res, 403, 'Invalid request origin.');
+          if (deployment.origin ? origin.origin !== deployment.origin : origin.host !== req.headers.host) return fail(res, 403, 'Cross-site requests are not allowed.');
+        }
         catch { return fail(res, 403, 'Invalid request origin.'); }
       }
     }
     next();
   });
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/api/health', (_req, res) => {
+    try { store.db.prepare('SELECT 1 AS ready').get(); res.json({ status: 'ok' }); }
+    catch { res.status(503).json({ status: 'unavailable' }); }
+  });
   app.get('/api/catalog', (_req, res) => res.json(store.getCatalog()));
   app.get('/api/availability', (req, res) => {
     const input = parse(z.object({ date: dateSchema, serviceId: text(50), vehicleId: text(50) }), req.query, res);

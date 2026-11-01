@@ -2,6 +2,8 @@
 
 This is a native React Native application built with Expo SDK 58 and Expo Router. It renders native controls; it does not open the website in a WebView. The website and owner dashboard remain in the repository root.
 
+For an installed iPhone app that works without your computer, use the [hosted backend and TestFlight guide](../docs/IPHONE-SETUP.md). The local Expo Go steps below are only for development. The `iphone:build` command creates and submits a signed build after your Apple, Expo, and hosting accounts are configured; it has not been run yet.
+
 ## Included
 
 - Native Discover, Book a detail, and My requests tabs.
