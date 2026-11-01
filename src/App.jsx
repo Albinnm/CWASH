@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Droplets, MapPin, Menu, ShieldCheck, Sparkles, X } from 'lucide-react';
 import './customer.css';
+import './customer-account.css';
+import { useCustomerAuth } from './customer-auth.jsx';
 
 const currency = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: Number.isInteger(value || 0) ? 0 : 2, maximumFractionDigits: 2 }).format(value || 0);
 const nyDate = (date = new Date()) => {
@@ -67,18 +69,20 @@ function CarArtwork() {
 }
 
 function Header({ onBook }) {
+  const { user } = useCustomerAuth();
   const [open, setOpen] = useState(false);
   return <header className="site-header"><div className="page-width header-inner">
     <a href="#" className="wordmark" aria-label="CWASH home"><Droplets size={26} strokeWidth={2.6}/>CWASH<span className="wordmark-dot">.</span></a>
     <button className="mobile-menu" aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <X/> : <Menu/>}</button>
     <nav className={open ? 'site-nav is-open' : 'site-nav'} aria-label="Main navigation">
-      <a href="#services" onClick={() => setOpen(false)}>Our services</a><a href="#how-it-works" onClick={() => setOpen(false)}>How it works</a><a href="#coverage" onClick={() => setOpen(false)}>Where we go</a>
+      <a href="#services" onClick={() => setOpen(false)}>Our services</a><a href="#how-it-works" onClick={() => setOpen(false)}>How it works</a><a href="#coverage" onClick={() => setOpen(false)}>Where we go</a><a href="/account">{user ? 'My account' : 'Sign in'}</a>
       <button className="button button-dark nav-book" onClick={() => { setOpen(false); onBook(); }}>Book a detail <ArrowRight size={16}/></button>
     </nav>
   </div></header>;
 }
 
 function Booking({ catalog, form, setForm, step, setStep, loadingCatalog, catalogError }) {
+  const auth = useCustomerAuth();
   const [error, setError] = useState('');
   const [slots, setSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -126,7 +130,7 @@ function Booking({ catalog, form, setForm, step, setStep, loadingCatalog, catalo
     if (!form.consent) return setError('Please confirm that you understand this is an appointment request.');
     setSending(true);
     try {
-      const data = await request('/api/bookings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const data = await auth.request('/api/bookings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       setBooking(data.booking);
     } catch (err) { setError(err.message); }
     finally { setSending(false); }
@@ -142,18 +146,19 @@ function Booking({ catalog, form, setForm, step, setStep, loadingCatalog, catalo
           <span className="success-icon"><CheckCircle2 size={36}/></span><span className="eyebrow">REQUEST RECEIVED</span><h3>You’re on our list.</h3><p>Your detail is <strong>awaiting confirmation</strong>. Our team will review your location and preferred time before accepting your appointment.</p>
           <div className="confirmation-reference"><span>YOUR BOOKING REFERENCE</span><strong>{booking.reference}</strong></div>
           <dl className="confirmation-details"><div><dt>Service</dt><dd>{booking.serviceName}</dd></div><div><dt>Requested date</dt><dd>{prettyDate(booking.date)}</dd></div><div><dt>Requested time</dt><dd>{prettyTime(booking.time)} · New York time</dd></div><div><dt>Estimated total</dt><dd>{currency(booking.total)}</dd></div></dl>
-          <p className="small-muted">Save this reference for your records. No payment has been taken. This page is your request receipt; email and text notifications are not enabled yet.</p>
-          <button className="button button-dark" onClick={() => { setBooking(null); setStep(0); setForm({ ...initialForm }); }}>Request another detail <ArrowRight size={16}/></button>
+          {auth.user && <a className="customer-booking-account-link" href="/account">View my bookings <ArrowRight size={16}/></a>}<p className="small-muted">Save this reference for your records. No payment has been taken. This page is your request receipt; email and text notifications are not enabled yet.</p>
+          <button className="button button-dark" onClick={() => { setBooking(null); setStep(0); setForm({ ...initialForm, firstName: auth.user?.firstName || '', lastName: auth.user?.lastName || '', email: auth.user?.email || '', phone: auth.user?.phone || '' }); }}>Request another detail <ArrowRight size={16}/></button>
         </div> : <>
           <ol className="booking-steps" aria-label="Booking progress">{['Your detail', 'Location', 'Date & time', 'Your details'].map((label, index) => <li key={label} className={index === step ? 'active' : index < step ? 'complete' : ''} aria-current={index === step ? 'step' : undefined}><span>{index < step ? <Check size={14}/> : String(index + 1).padStart(2, '0')}</span><span>{label}</span></li>)}</ol>
           <form ref={formRef} onSubmit={next} className="booking-form">
+            {auth.user ? <div className="customer-signin-note">Booking as <strong>{auth.user.firstName}</strong>. This request will appear in <a href="/account">My bookings</a>.</div> : <div className="customer-signin-note"><a href="/account">Sign in or create an account</a> to keep bookings together across devices, or continue below as a guest.</div>}
             {step === 0 && <><div className="form-heading"><span>STEP 01 / 04</span><h3>What does your car need?</h3><p>Good care starts with the right detail.</p></div><fieldset className="selection-fieldset"><legend>Choose your service</legend><div className="service-options">{catalog.services.map(item => <label className={`service-option ${form.serviceId === item.id ? 'selected' : ''}`} key={item.id}><input type="radio" name="serviceId" value={item.id} checked={form.serviceId === item.id} onChange={() => update('serviceId', item.id)}/><span className="choice-dot"/><span className="option-main"><strong>{item.name}</strong><span><Clock3 size={13}/>{item.duration} min</span></span><strong className="option-price">{currency(item.price)}</strong></label>)}</div></fieldset>
               <fieldset className="selection-fieldset"><legend>Your vehicle size</legend><div className="vehicle-options">{catalog.vehicles.map(item => <label className={`vehicle-option ${form.vehicleId === item.id ? 'selected' : ''}`} key={item.id}><input type="radio" name="vehicleId" value={item.id} checked={form.vehicleId === item.id} onChange={() => update('vehicleId', item.id)}/><CarSize large={item.surcharge > 0}/><strong>{item.name}</strong><span>{item.surcharge ? `+${currency(item.surcharge)}` : 'Base price'}</span></label>)}</div></fieldset></>}
             {step === 1 && <><div className="form-heading"><span>STEP 02 / 04</span><h3>Where should we meet you?</h3><p>Your home, your workplace, your convenience.</p></div><div className="field-row">{input('zip', 'NYC ZIP code', { required: true, inputMode: 'numeric', pattern: '[0-9]{5}', maxLength: 5, autoComplete: 'postal-code', placeholder: '11201' })}{input('unit', 'Apt / unit (optional)', { maxLength: 40, autoComplete: 'address-line2', placeholder: 'Apt 4B' })}</div>{input('address', 'Street address', { required: true, maxLength: 200, autoComplete: 'street-address', placeholder: '123 Atlantic Avenue' })}<label className="field"><span>Where will your car be parked?</span><select name="parking" value={form.parking} onChange={event => update('parking', event.target.value)} required><option value="">Choose parking type</option><option value="driveway">Private driveway</option><option value="private-lot">Private parking lot</option><option value="garage">Garage</option><option value="street">Street parking</option></select></label><div className="info-note"><MapPin size={19}/><p>We’ll review workspace, garage permission, and water or power access before confirming. Street parking is subject to an access check.</p></div><label className="field"><span>Access notes (optional)</span><textarea name="notes" rows={3} maxLength={1000} placeholder="Garage entry, vehicle condition, or anything we should know…" value={form.notes} onChange={event => update('notes', event.target.value)}/></label></>}
             {step === 2 && <><div className="form-heading"><span>STEP 03 / 04</span><h3>Make time for a fresh start.</h3><p>All appointments use New York time.</p></div>{input('date', 'Preferred date', { type: 'date', required: true, min: nyDate(), max: nyDate(new Date(Date.now() + 90 * 86400000)) })}<fieldset className="selection-fieldset time-fieldset"><legend>Available arrival times</legend>{loadingSlots ? <p className="small-muted" role="status">Checking available times…</p> : slotError ? <p className="error-banner" role="alert">{slotError}</p> : slots.length ? <div className="time-options">{slots.map(time => <label className={`time-option ${form.time === time ? 'selected' : ''}`} key={time}><input type="radio" name="time" value={time} checked={form.time === time} onChange={() => update('time', time)}/>{prettyTime(time)}</label>)}</div> : <div className="empty-slots"><CalendarDays size={28}/><p>No times available on this date.</p><span>Try another day to find your spot.</span></div>}</fieldset><div className="info-note"><Clock3 size={19}/><p>This is your requested arrival time. Your appointment becomes confirmed once our team accepts it.</p></div></>}
-            {step === 3 && <><div className="form-heading"><span>STEP 04 / 04</span><h3>Let’s make it yours.</h3><p>Just a few details and your request is on its way.</p></div><div className="field-row">{input('firstName', 'First name', { required: true, maxLength: 80, autoComplete: 'given-name', placeholder: 'First name' })}{input('lastName', 'Last name', { required: true, maxLength: 80, autoComplete: 'family-name', placeholder: 'Last name' })}</div>{input('email', 'Email address', { required: true, type: 'email', maxLength: 200, autoComplete: 'email', placeholder: 'you@example.com' })}{input('phone', 'Phone number', { required: true, type: 'tel', maxLength: 30, autoComplete: 'tel', placeholder: '(212) 555-0123' })}<div className="contact-note">Your contact details are only used to manage your reservation.</div><label className="consent-check"><input type="checkbox" checked={form.consent} onChange={event => update('consent', event.target.checked)} required/><span>I understand this is a booking request. My appointment and final service details will be confirmed by CWASH. No payment is due now.</span></label></>}
+            {step === 3 && <><div className="form-heading"><span>STEP 04 / 04</span><h3>Let’s make it yours.</h3><p>Just a few details and your request is on its way.</p></div><div className="field-row">{input('firstName', 'First name', { required: true, maxLength: 80, autoComplete: 'given-name', placeholder: 'First name' })}{input('lastName', 'Last name', { required: true, maxLength: 80, autoComplete: 'family-name', placeholder: 'Last name' })}</div>{input('email', 'Email address', { required: true, type: 'email', maxLength: 200, autoComplete: 'email', placeholder: 'you@example.com', readOnly: !!auth.user })}{input('phone', 'Phone number', { required: true, type: 'tel', maxLength: 30, autoComplete: 'tel', placeholder: '(212) 555-0123' })}<div className="contact-note">Your contact details are only used to manage your reservation.</div><label className="consent-check"><input type="checkbox" checked={form.consent} onChange={event => update('consent', event.target.checked)} required/><span>I understand this is a booking request. My appointment and final service details will be confirmed by CWASH. No payment is due now.</span></label></>}
             {error && <div className="error-banner" role="alert">{error}</div>}
-            <div className="form-navigation">{step > 0 ? <button type="button" className="back-button" disabled={sending} onClick={() => { setStep(step - 1); setError(''); }}><ArrowLeft size={17}/>Back</button> : <span className="form-safe"><ShieldCheck size={15}/>No payment required</span>}<button type="submit" className="button button-dark" disabled={sending || (step === 2 && loadingSlots)}>{sending ? 'Sending request…' : step === 3 ? 'Request appointment' : 'Continue'}{!sending && <ArrowRight size={17}/>}</button></div>
+            <div className="form-navigation">{step > 0 ? <button type="button" className="back-button" disabled={sending} onClick={() => { setStep(step - 1); setError(''); }}><ArrowLeft size={17}/>Back</button> : <span className="form-safe"><ShieldCheck size={15}/>No payment required</span>}<button type="submit" className="button button-dark" disabled={sending || auth.loading || (step === 2 && loadingSlots)}>{sending ? 'Sending request…' : step === 3 ? 'Request appointment' : 'Continue'}{!sending && <ArrowRight size={17}/>}</button></div>
           </form>
         </>}
       </div>
@@ -165,10 +170,11 @@ function Booking({ catalog, form, setForm, step, setStep, loadingCatalog, catalo
 function CarSize({ large }) { return <svg viewBox="0 0 80 38" aria-hidden="true"><path d={large ? 'M8 24v-9h12l8-8h29l9 10 8 3v10H8Z' : 'M7 23l13-4 12-10h22l10 11 10 4v7H7Z'} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><path d="M30 11v9h24l-4-9M24 20h-8M39 11v9" fill="none" stroke="currentColor" strokeWidth="1.7"/><circle cx="23" cy="29" r="6" fill="var(--cw-cream)" stroke="currentColor" strokeWidth="2"/><circle cx="61" cy="29" r="6" fill="var(--cw-cream)" stroke="currentColor" strokeWidth="2"/></svg>; }
 
 export default function App() {
+  const { user } = useCustomerAuth();
   const [catalog, setCatalog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState(() => ({ ...initialForm, firstName: user?.firstName || '', lastName: user?.lastName || '', email: user?.email || '', phone: user?.phone || '' }));
   const [step, setStep] = useState(0);
   useEffect(() => { const controller = new AbortController(); request('/api/catalog', { signal: controller.signal }).then(setCatalog).catch(err => { if (err.name !== 'AbortError') setError('We couldn’t load the booking options. Please try again in a moment.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); }); return () => controller.abort(); }, []);
   const book = serviceId => { if (serviceId) { setForm(previous => ({ ...previous, serviceId, time: '' })); setStep(0); } document.getElementById('book')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };

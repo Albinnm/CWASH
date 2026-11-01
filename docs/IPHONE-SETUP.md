@@ -12,7 +12,7 @@ You can install **TestFlight** from the iPhone App Store now. Installing TestFli
 
 ## 2. Put the backend online
 
-The supplied `render.yaml` prepares one Render web service plus a persistent disk for bookings. This uses a **paid Starter service and a paid 1 GB disk**; review the prices Render displays before approving deployment. The persistent disk is required—an ephemeral/free filesystem would lose your reservations and admin account.
+The supplied `render.yaml` prepares one Render web service plus a persistent disk for bookings. This uses a **paid Starter service and a paid 1 GB disk**; review the prices Render displays before approving deployment. The persistent disk is required—an ephemeral/free filesystem would lose your reservations and customer/admin accounts.
 
 1. Create or sign in to your [Render account](https://dashboard.render.com/), connect GitHub, and create a **Blueprint** from `Albinnm/CWASH`, branch `main`. Render will read `render.yaml`. Review its validation and plan details; the cloud workspace has not validated this against Render's live provisioning API.
 2. When prompted, enter `CWASH_INITIAL_ADMIN_EMAIL` and choose `CWASH_INITIAL_ADMIN_PASSWORD` (at least 12 characters) in Render's private environment settings. These create your hosted admin account once. Existing local accounts/bookings are not uploaded. No admin password is committed to GitHub.
@@ -42,9 +42,9 @@ Use the `mobile` directory on your computer for this one-time setup. EAS builds 
    ```
    This explicitly starts a cloud build and submits it to App Store Connect. Review any Expo build charges and Apple credential prompts. Sign in using your own Apple Account when asked. Let EAS guide you through signing and App Store Connect setup. This command is provided, **not already executed**.
 5. After Apple processes the upload, open App Store Connect → your CWASH app → **TestFlight**. Complete requested beta/compliance details, add yourself as an internal tester, and accept the invitation on your iPhone. In TestFlight, tap **Install** for CWASH.
-6. Turn off your computer and test a reservation over cellular data. Confirm it from the hosted `/admin` dashboard, then refresh My requests in CWASH. This is the acceptance check for independent phone access.
+6. In CWASH's **Account** tab, create a customer account or sign in with one created at the hosted website's `/account` page. Turn off your computer and test a reservation over cellular data. Confirm it from the hosted `/admin` dashboard, then refresh **My bookings** in CWASH. Check that the same reservation appears on the website when signed in with that customer account. This is the acceptance check for independent phone access. Earlier guest bookings are not automatically linked to customer accounts.
 
-TestFlight builds expire after 90 days and need replacement builds. External testers may require beta review. Public App Store distribution is the eventual long-term route and requires App Review, real app icons (template icons are still present), privacy/support information, and store listing details. Payments and push notifications remain unimplemented.
+TestFlight builds expire after 90 days and need replacement builds. External testers may require beta review. Public App Store distribution is the eventual long-term route and requires App Review, real app icons (template icons are still present), privacy/support information, and store listing details. Customer signup, profile editing, and password changes are implemented; changing a password signs out all of that customer's sessions. Email verification, forgotten-password recovery, and in-app account deletion remain outstanding before public launch/App Store submission. Payments and push notifications remain unimplemented.
 
 ## What was verified in the development environment
 

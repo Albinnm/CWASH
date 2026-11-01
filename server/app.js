@@ -6,6 +6,7 @@ import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypt
 import { hashPassword, verifyPassword } from './store.js';
 import { getSlots, validDate, TIMEZONE } from './scheduling.js';
 import { deploymentSettings } from './deployment.js';
+import { customerAuth } from './customers.js';
 
 const dateSchema = z.string().refine(validDate, 'Enter a valid date.');
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -79,6 +80,8 @@ export function createApp({ store, rateLimits = true, production = false, deploy
     }
     next();
   });
+  const customers = customerAuth({ store, rateLimits });
+  app.use('/api/customer', customers.router);
   app.get('/api/health', (_req, res) => {
     try { store.db.prepare('SELECT 1 AS ready').get(); res.json({ status: 'ok' }); }
     catch { res.status(503).json({ status: 'unavailable' }); }
@@ -91,21 +94,22 @@ export function createApp({ store, rateLimits = true, production = false, deploy
     if (!selected) return fail(res, 400, 'Choose a valid service and vehicle.');
     res.json({ slots: getSlots(store, { date: input.date, duration: selected.duration }), timezone: TIMEZONE });
   });
-  app.post('/api/bookings', bookingLimiter, (req, res) => {
-    const input = parse(bookingSchema, req.body, res); if (!input) return;
+  app.post('/api/bookings', bookingLimiter, customers.optionalBookingAuth, (req, res) => {
+    const input = parse(bookingSchema, req.customer ? { ...req.body, email:req.customer.user.email } : req.body, res); if (!input) return;
     const selected = selection(store, input.serviceId, input.vehicleId);
     if (!selected) return fail(res, 400, 'Choose a valid service and vehicle.');
     if (!store.getCatalog().settings.zipPrefixes.some(prefix => input.zip.startsWith(prefix))) return fail(res, 400, 'This ZIP code is outside our current service area.');
     if (!getSlots(store, { date: input.date, duration: selected.duration }).includes(input.time)) return fail(res, 409, 'That appointment is no longer available. Please choose another time.');
     const b = { ...input, id: randomUUID(), reference: `CW-${randomBytes(5).toString('hex').toUpperCase()}`, status: 'pending', serviceName: selected.service.name, vehicleName: selected.vehicle.name, total: selected.total, duration: selected.duration, createdAt: new Date().toISOString() };
-    const accessToken = randomBytes(32).toString('hex');
+    const accessToken = req.customer ? null : randomBytes(32).toString('hex');
     store.db.exec('BEGIN IMMEDIATE');
     try {
       store.db.prepare('INSERT INTO bookings (id,reference,date,time,status,value) VALUES (?,?,?,?,?,?)').run(b.id, b.reference, b.date, b.time, b.status, JSON.stringify(b));
-      store.db.prepare('INSERT INTO booking_access (booking_id,token_hash) VALUES (?,?)').run(b.id, tokenHash(accessToken));
+      if (accessToken) store.db.prepare('INSERT INTO booking_access (booking_id,token_hash) VALUES (?,?)').run(b.id, tokenHash(accessToken));
+      if (req.customer) store.db.prepare('INSERT INTO booking_customers (booking_id,user_id) VALUES (?,?)').run(b.id,req.customer.user.id);
       store.db.exec('COMMIT');
     } catch (error) { store.db.exec('ROLLBACK'); throw error; }
-    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration, accessToken } });
+    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration, ...(accessToken ? {accessToken} : {}) } });
   });
   app.get('/api/bookings/:reference', (req, res) => {
     const token = req.headers.authorization?.replace(/^Bearer /, '');

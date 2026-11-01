@@ -3,16 +3,18 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import Book from '../src/app/book';
 import { api } from '../src/lib/api';
 import { saveReceipt } from '../src/lib/receipts';
+import { useCustomer } from '../src/lib/customer';
 
 jest.mock('expo-router',()=>({useLocalSearchParams:()=>({}),router:{navigate:jest.fn()}}));
 jest.mock('react-native-safe-area-context',()=>jest.requireActual('react-native-safe-area-context/jest/mock').default);
 jest.mock('../src/lib/api',()=>({...jest.requireActual('../src/lib/api'),api:jest.fn()}));
 jest.mock('../src/lib/receipts',()=>({saveReceipt:jest.fn()}));
+jest.mock('../src/lib/customer',()=>({useCustomer:jest.fn()}));
 const catalog={services:[{id:'full',name:'Full detail',price:199,duration:180,features:[],description:'Inside and out'}],vehicles:[{id:'sedan',name:'Sedan',surcharge:0,durationExtra:0}],settings:{preview:true,zipPrefixes:['112']}};
 const booking={reference:'CW-TEST123',status:'pending',serviceName:'Full detail',vehicleName:'Sedan',date:'2026-11-10',time:'09:00',total:199,duration:180,accessToken:'test-only-key'};
-beforeEach(()=>{(api as jest.Mock).mockImplementation((path:string)=>Promise.resolve(path==='/api/catalog'?catalog:path.startsWith('/api/availability')?{slots:['09:00']}:{booking}));(saveReceipt as jest.Mock).mockResolvedValue(undefined);});
+beforeEach(()=>{jest.clearAllMocks();(useCustomer as jest.Mock).mockReturnValue({status:'guest',user:null,request:api});(api as jest.Mock).mockImplementation((path:string)=>Promise.resolve(path==='/api/catalog'?catalog:path.startsWith('/api/availability')?{slots:['09:00']}:{booking}));(saveReceipt as jest.Mock).mockResolvedValue(undefined);});
 
-async function goToContact(){
+async function goToContact(guest=true){
   await render(<Book/>);
   await screen.findByText('Full detail');
   await fireEvent.press(screen.getByText('Full detail'));
@@ -24,10 +26,12 @@ async function goToContact(){
   await fireEvent.press(screen.getByText('Continue →'));
   await fireEvent.press(await screen.findByText('9:00 AM'));
   await fireEvent.press(screen.getByText('Continue →'));
+  if(guest){
   await fireEvent.changeText(screen.getByLabelText('First name'),'Test');
   await fireEvent.changeText(screen.getByLabelText('Last name'),'Customer');
   await fireEvent.changeText(screen.getByLabelText('Email'),'test@example.test');
   await fireEvent.changeText(screen.getByLabelText('Phone number'),'2125550100');
+  }
   await fireEvent.press(screen.getByRole('checkbox'));
 }
 test('native booking submits the chosen service and saves its private receipt',async()=>{
@@ -52,4 +56,17 @@ test('missing selections cannot advance the native booking flow',async()=>{
   await fireEvent.press(screen.getByText('Continue →'));
   expect(screen.getByText('Choose your service and vehicle size.')).toBeTruthy();
   expect(screen.queryByLabelText('Street address')).toBeNull();
+});
+
+test('signed-in booking prefills contact details and leaves private history on the server',async()=>{
+  (useCustomer as jest.Mock).mockReturnValue({status:'authenticated',user:{id:'customer-1',firstName:'Account',lastName:'Customer',email:'account@example.test',phone:'2125550100'},request:api});
+  await goToContact(false);
+  expect(screen.getByLabelText('First name').props.value).toBe('Account');
+  expect(screen.getByLabelText('Email').props.value).toBe('account@example.test');
+  expect(screen.getByLabelText('Email').props.editable).toBe(false);
+  await fireEvent.press(screen.getByText('Request appointment'));
+  await screen.findByText('CW-TEST123');
+  expect(saveReceipt).not.toHaveBeenCalled();
+  const call=(api as jest.Mock).mock.calls.find(([path])=>path==='/api/bookings');
+  expect(JSON.parse(call![1].body)).toMatchObject({firstName:'Account',email:'account@example.test'});
 });

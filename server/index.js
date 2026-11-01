@@ -14,7 +14,7 @@ let vite;
 if (production) {
   if (!existsSync('dist/index.html')) throw new Error('Run npm run build before npm start.');
   app.use(express.static(resolve('dist')));
-  app.get(['/', '/admin', '/admin/*path'], (_req, res) => res.sendFile(resolve('dist/index.html')));
+  app.get(['/', '/account', '/account/*path', '/admin', '/admin/*path'], (_req, res) => res.sendFile(resolve('dist/index.html')));
 } else {
   const { createServer } = await import('vite');
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'spa' });

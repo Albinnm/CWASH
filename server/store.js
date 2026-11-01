@@ -45,6 +45,10 @@ export function createStore({ dataDir = process.env.CWASH_DATA_DIR || './data', 
     CREATE TABLE IF NOT EXISTS booking_access (booking_id TEXT PRIMARY KEY REFERENCES bookings(id), token_hash TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS admins (id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, admin_id INTEGER REFERENCES admins(id), csrf TEXT NOT NULL, expires INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS customers (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS customer_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, csrf TEXT NOT NULL, expires INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('web','mobile')));
+    CREATE TABLE IF NOT EXISTS booking_customers (booking_id TEXT PRIMARY KEY REFERENCES bookings(id), user_id TEXT NOT NULL REFERENCES customers(id));
+    CREATE INDEX IF NOT EXISTS customer_booking_owner ON booking_customers(user_id);
   `);
   db.prepare('INSERT OR IGNORE INTO settings (id,value) VALUES (1,?)').run(JSON.stringify(defaultSettings));
   for (const s of services) db.prepare('INSERT OR IGNORE INTO services (id,value) VALUES (?,?)').run(s.id, JSON.stringify(s));

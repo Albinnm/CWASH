@@ -6,11 +6,13 @@ For an installed iPhone app that works without your computer, use the [hosted ba
 
 ## Included
 
-- Native Discover, Book a detail, and My requests tabs.
+- Native Discover, Book a detail, My bookings, and Account tabs.
 - Services and vehicle estimates loaded from the existing API.
 - NYC address/parking fields, available dates and times, contact details, and booking receipt.
-- Guest requests stored using OS-protected SecureStore. Pull down in My requests to fetch the current status after admin confirmation, cancellation, or rescheduling.
-- Private per-booking access keys: knowing a reference alone does not allow someone to read a booking. Account login, cross-device history, push notifications, payments, and self-service cancellation are not implemented.
+- Customer email/password signup and sign-in in **Account**, editable name/phone, and password changes. Passwords require at least 12 characters; changing one revokes every session for that customer. Customer sessions last seven days and their tokens are kept in OS-protected SecureStore; admin accounts remain separate and have eight-hour sessions.
+- Account bookings shared with the website when both connect to the same backend. Sign in before booking to save a request to the account and fill contact details automatically. Pull down in **My bookings** for the latest status after admin confirmation, cancellation, or rescheduling.
+- Guest checkout remains available. Guest receipts and private per-booking access keys are stored in SecureStore on that phone; knowing a reference alone does not allow someone to read a booking. Guest history stays separate and is not automatically linked to an account by matching email.
+- Email verification, forgotten-password recovery, email changes, account deletion, push notifications, payments, and self-service cancellation are not implemented.
 
 ## Test on your phone from Windows
 
@@ -30,7 +32,7 @@ For an installed iPhone app that works without your computer, use the [hosted ba
    ```
    Replace the example IP with your computer's actual address. For example, `EXPO_PUBLIC_API_URL=http://192.168.1.25:3000`. This is a public server address, never a secret. Do not use localhost: on a phone, that refers to the phone itself.
 5. Install **Expo Go** from your phone's app store. Run `npm.cmd start` in the `mobile` folder and scan the terminal QR code (Camera on iPhone, Expo Go on Android). Expo Go must support SDK 58; update it if prompted. This loads the native app inside Expo's development client for testing. Keep both terminal windows open. After changing `.env`, restart Expo with `npm.cmd start -- --clear`.
-6. Submit a test request in the app. Use the existing web admin dashboard to confirm it, then pull down in My requests to see the updated status. Automatic notifications are not enabled.
+6. Open **Account** and create a customer account, or sign in with one created on the website's `/account` page on this same backend. Submit a test request, confirm it from the web admin dashboard, then pull down in **My bookings** to see the updated status. Automatic notifications are not enabled. You can also continue as a guest.
 
 An Expo Go session is a development test. A signed standalone CWASH installation is a separate build below. No simulator or physical-device run was performed in the cloud workspace; run these steps to verify device behavior.
 
@@ -48,7 +50,7 @@ npx.cmd eas-cli@latest build --platform ios --profile production
 npx.cmd eas-cli@latest build --platform android --profile production
 ```
 
-An Android preview build produces an installable APK. iOS distribution uses Apple signing and TestFlight or approved registered devices. EAS builds may use account credits; run them only when ready. Review app icons (currently Expo template assets), real prices, privacy policy, contact details, permissions, and business terms before release. SecureStore receipts may be lost when the app is removed; they are not a customer account or backup.
+An Android preview build produces an installable APK. iOS distribution uses Apple signing and TestFlight or approved registered devices. EAS builds may use account credits; run them only when ready. Review app icons (currently Expo template assets), real prices, privacy policy, contact details, permissions, and business terms before release, and complete account deletion, email verification, and password recovery. Guest SecureStore receipts may be lost when the app is removed; signed-in bookings persist on the backend and are available after signing in again.
 
 ## Validation
 
@@ -60,6 +62,6 @@ npm test
 npm run export
 ```
 
-`expo export` validates Android/iOS JavaScript bundles; it does not create a signed APK/IPA. Native component tests use mocked network/storage, while root `npm test` exercises the real booking API and private receipt authorization.
+`expo export` validates Android/iOS JavaScript bundles; it does not create a signed APK/IPA. Native component tests use mocked network/storage, while root `npm test` exercises the real booking API, private receipt authorization, and customer authentication/booking ownership.
 
 Cloud network settings may not allow Expo documentation/metadata hosts. Installation can use `EXPO_OFFLINE=1 npx expo install ...` with SDK compatibility versions included in the installed Expo package and npm access. Native export works with `EXPO_OFFLINE=1`. Device/EAS workflows need normal Expo connectivity on your computer.
