@@ -114,5 +114,5 @@ export function customerAuth({store, rateLimits = true}) {
     if(req.customer.session.kind==='web')res.clearCookie('cwash_customer',cookie);
     res.json({ok:true});
   });
-  return {router,optionalBookingAuth};
+  return {router,optionalBookingAuth,authorize};
 }

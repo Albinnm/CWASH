@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowDownLeft, ArrowLeft, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, LayoutDashboard, LogOut, MapPin, Menu, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Users, X } from 'lucide-react';
 import './admin.css';
+import AdminBilling from './AdminBilling.jsx';
 
 const NYC = 'America/New_York';
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value || 0);
@@ -70,8 +71,8 @@ export default function Admin() {
   const pending = bookings.filter(b => b.status === 'pending');
   const todayJobs = bookings.filter(b => b.date === today && active(b));
   const upcoming = bookings.filter(b => b.date >= today && active(b)).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
-  const navigation = [['overview', LayoutDashboard, 'Overview'], ['bookings', Users, 'Reservations'], ['calendar', CalendarDays, 'Calendar'], ['settings', Settings2, 'Business settings']];
-  const titles = { overview: 'A fresh start, every day.', bookings: 'Your reservations.', calendar: 'Make room for a great detail.', settings: 'Your business, your way.' };
+  const navigation = [['overview', LayoutDashboard, 'Overview'], ['bookings', Users, 'Reservations'], ['calendar', CalendarDays, 'Calendar'], ['billing', ShieldCheck, 'Payments & memberships'], ['settings', Settings2, 'Business settings']];
+  const titles = { overview: 'A fresh start, every day.', bookings: 'Your reservations.', calendar: 'Make room for a great detail.', billing: 'Payments, in view.', settings: 'Your business, your way.' };
 
   return <div className="admin-shell">
     <aside className={`ad-sidebar ${mobileMenu ? 'ad-sidebar-open' : ''}`}>
@@ -83,7 +84,7 @@ export default function Admin() {
     {mobileMenu && <button className="ad-sidebar-backdrop" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}
     <main className="ad-main">
       <div className="ad-topbar"><button className="ad-menu-button" onClick={() => setMobileMenu(true)} aria-label="Open navigation"><Menu size={22} /></button><span>YOUR BUSINESS, IN FOCUS</span><div><span className="ad-live-dot" /> New York, NY <span className="ad-topbar-divider">/</span> Eastern time</div></div>
-      <header className="ad-page-heading"><div><div className="ad-eyebrow">{dateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>{titles[page]}</h1><p>{page === 'overview' ? 'A little organization. A lot of shine.' : page === 'bookings' ? 'Review requests and keep every customer in the loop.' : page === 'calendar' ? 'Your appointments at a glance. All times are New York time.' : 'Manage your services, coverage, and appointment availability.'}</p></div><button className="ad-secondary ad-refresh" onClick={refresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh data'}</button></header>
+      <header className="ad-page-heading"><div><div className="ad-eyebrow">{dateLabel(today, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>{titles[page]}</h1><p>{page === 'overview' ? 'A little organization. A lot of shine.' : page === 'bookings' ? 'Review requests and keep every customer in the loop.' : page === 'calendar' ? 'Your appointments at a glance. All times are New York time.' : page === 'billing' ? 'Review payment and membership status.' : 'Manage your services, coverage, and appointment availability.'}</p></div><button className="ad-secondary ad-refresh" onClick={refresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh data'}</button></header>
       {error && <div className="ad-alert" role="alert">{error}</div>}
       {toast && <div className="ad-toast" role="status"><Check size={18} />{toast}</div>}
       {loading && !catalog ? <div className="ad-loading" role="status">Loading your workspace…</div> : <>
@@ -99,6 +100,7 @@ export default function Admin() {
         </>}
         {page === 'bookings' && <Reservations bookings={bookings} onSelect={setSelected} />}
         {page === 'calendar' && <Calendar bookings={bookings} onSelect={setSelected} today={today} />}
+        {page === 'billing' && <AdminBilling request={request} />}
         {page === 'settings' && catalog && <BusinessSettings catalog={catalog} request={request} onSaved={async () => { setToast('Business settings saved.'); await refresh(); }} />}
       </>}
       <footer className="ad-footer"><span>CWASH · A better clean, wherever you are.</span><span>Owner workspace</span></footer>
@@ -120,7 +122,7 @@ function Empty({ title, text, small }) { return <div className={`ad-empty ${smal
 
 function BookingTable({ bookings, onSelect, emptyTitle = 'No reservations found.', emptyText = 'Try a different search or status filter.' }) {
   if (!bookings.length) return <Empty title={emptyTitle} text={emptyText} />;
-  return <div className="ad-table-scroll"><table className="ad-table"><thead><tr><th>Customer</th><th>Service</th><th>Appointment</th><th>Status</th><th>Estimate</th><th><span className="ad-sr-only">Details</span></th></tr></thead><tbody>{bookings.map(b => <tr key={b.id}><td><div className="ad-customer-cell"><span className="ad-table-avatar">{b.firstName?.[0]}{b.lastName?.[0]}</span><div><strong>{b.firstName} {b.lastName}</strong><small>{b.reference}</small></div></div></td><td><strong>{b.serviceName}</strong><small>{b.vehicleName}</small></td><td><strong>{dateLabel(b.date)}</strong><small>{timeLabel(b.time)}</small></td><td><Status status={b.status} /></td><td className="ad-price">{money(b.total)}</td><td><button className="ad-row-open" onClick={() => onSelect(b)} aria-label={`View reservation ${b.reference}`}><ArrowRight size={17} /></button></td></tr>)}</tbody></table></div>;
+  return <div className="ad-table-scroll"><table className="ad-table"><thead><tr><th>Customer</th><th>Service</th><th>Appointment</th><th>Status</th><th>Estimate</th><th><span className="ad-sr-only">Details</span></th></tr></thead><tbody>{bookings.map(b => <tr key={b.id}><td><div className="ad-customer-cell"><span className="ad-table-avatar">{b.firstName?.[0]}{b.lastName?.[0]}</span><div><strong>{b.firstName} {b.lastName}</strong><small>{b.reference}</small></div></div></td><td><strong>{b.serviceName}</strong><small>{b.vehicleName}</small></td><td><strong>{dateLabel(b.date)}</strong><small>{timeLabel(b.time)}</small></td><td><Status status={b.status} /></td><td className="ad-price">{b.coverage === 'membership' || b.membershipIncluded ? 'Included' : money(b.total)}</td><td><button className="ad-row-open" onClick={() => onSelect(b)} aria-label={`View reservation ${b.reference}`}><ArrowRight size={17} /></button></td></tr>)}</tbody></table></div>;
 }
 
 function Reservations({ bookings, onSelect }) {

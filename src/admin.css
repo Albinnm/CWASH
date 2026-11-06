@@ -6,3 +6,5 @@
 .admin-shell h1,.admin-shell h2,.admin-shell h3,.admin-login h1,.admin-login h2,.ad-brand{font-family:Manrope,"DM Sans",Arial,sans-serif}
 /* Keep visually hidden table headings inside their horizontal scroll container. */
 .ad-table-scroll{position:relative;max-width:100%}
+
+.ad-billing{display:grid;gap:22px}.ad-billing .ad-settings-content{display:grid;gap:16px}.ad-billing .ad-table td{overflow-wrap:anywhere}

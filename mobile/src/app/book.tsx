@@ -1,5 +1,6 @@
 import { Customer, useCustomer } from '../lib/customer';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Billing } from '../lib/billing';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { api, Catalog, dateLabel, dollars, nyDate, Receipt, timeLabel } from '../lib/api';
@@ -10,13 +11,16 @@ const empty = ()=>({serviceId:'',vehicleId:'',date:nyDate(new Date(Date.now()+86
 type Form=ReturnType<typeof empty>;
 export default function Book(){
   const auth=useCustomer();
-  const params=useLocalSearchParams<{service?:string;selection?:string}>();
+  const params=useLocalSearchParams<{service?:string;selection?:string;coverage?:string}>();
   if(auth.status==='loading')return <Screen><Loading/></Screen>;
   if(auth.status==='error')return <Screen><ErrorNotice message={auth.notice}/><Button label="Retry connection" onPress={auth.retry}/></Screen>;
-  return <BookingForm key={`${auth.user?.id||'guest'}-${params.service||'default'}-${params.selection||''}`} initialService={params.service} user={auth.user}/>;
+  if(params.coverage==='membership'&&!auth.user)return <Screen><Title eyebrow="YOUR INCLUDED VISITS">Sign in to your membership.</Title><Button label="Sign in" onPress={()=>router.navigate('/account')}/></Screen>;
+  return <BookingForm key={`${auth.user?.id||'guest'}-${params.coverage||'regular'}-${params.service||'default'}-${params.selection||''}`} initialService={params.service} user={auth.user} membershipCoverage={params.coverage==='membership'}/>;
 }
-function BookingForm({initialService,user}:{initialService?:string;user:Customer|null}){
+function BookingForm({initialService,user,membershipCoverage}:{initialService?:string;user:Customer|null;membershipCoverage:boolean}){
   const auth=useCustomer();
+  const request=auth.request;
+  const [periodEnd,setPeriodEnd]=useState<number|null>(null);
   const initialForm=()=>({...empty(),serviceId:initialService||'',...(user?{firstName:user.firstName,lastName:user.lastName,email:user.email,phone:user.phone}:{})});
   const [catalog,setCatalog]=useState<Catalog|null>(null),[form,setForm]=useState(initialForm),[step,setStep]=useState(0),[offset,setOffset]=useState(0);
   const [error,setError]=useState(''),[sending,setSending]=useState(false),[receipt,setReceipt]=useState<Receipt|null>(null),[storageError,setStorageError]=useState('');
@@ -27,18 +31,31 @@ function BookingForm({initialService,user}:{initialService?:string;user:Customer
   const loadingSlots=step===2&&slotState.key!==queryKey;
   const slots=slotState.key===queryKey?slotState.slots:[];
   const slotError=slotState.key===queryKey?slotState.error:'';
-  async function load(){setError('');try{setCatalog(await api<Catalog>('/api/catalog'));}catch(e){setError((e as Error).message);}}
-  useEffect(()=>{let active=true;api<Catalog>('/api/catalog').then(data=>{if(active)setCatalog(data);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[]);
+  const fetchCatalog=useCallback(async()=>{
+    const data=await api<Catalog>('/api/catalog');
+    if(!membershipCoverage)return {catalog:data,periodEnd:null};
+    const billing=await request<Billing>('/api/customer/billing');
+    if(!billing.benefits?.active)throw new Error('An active paid membership is required for included visits. Open Membership & billing to check your plan.');
+    const serviceId=billing.benefits.fullDetailAvailable?'full':billing.benefits.maintenanceAvailable?'maintenance':null;
+    if(!serviceId)throw new Error('No included visits are available right now. Open Membership & billing for the latest status.');
+    if(initialService!==serviceId)throw new Error('Your included visit availability changed. Return to Membership & billing to choose an available visit.');
+    const service=serviceId==='maintenance'?data.membershipService:data.services.find(item=>item.id==='full');
+    if(!service)throw new Error('This membership service is unavailable. Please contact CWASH.');
+    return {catalog:{...data,services:[{...service,price:0}]},periodEnd:billing.benefits.periodEnd};
+  },[membershipCoverage,initialService,request]);
+  async function load(){setError('');try{const data=await fetchCatalog();setCatalog(data.catalog);setPeriodEnd(data.periodEnd);}catch(e){setError((e as Error).message);}}
+  useEffect(()=>{let active=true;fetchCatalog().then(data=>{if(active){setCatalog(data.catalog);setPeriodEnd(data.periodEnd);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[fetchCatalog]);
   useEffect(()=>{
     if(step!==2||!form.serviceId||!form.vehicleId)return;
     let active=true;
     const query=new URLSearchParams({date:form.date,serviceId:form.serviceId,vehicleId:form.vehicleId});
-    api<{slots:string[]}>(`/api/availability?${query}`).then(data=>{if(active)setSlotState({key:queryKey,slots:data.slots,error:''});}).catch(e=>{if(active)setSlotState({key:queryKey,slots:[],error:e.message});});
+    if(membershipCoverage)query.set('coverage','membership');
+    (membershipCoverage?request:api)<{slots:string[]}>(`/api/availability?${query}`).then(data=>{if(active)setSlotState({key:queryKey,slots:data.slots,error:''});}).catch(e=>{if(active)setSlotState({key:queryKey,slots:[],error:e.message});});
     return ()=>{active=false;};
-  },[step,form.date,form.serviceId,form.vehicleId,queryKey]);
+  },[step,form.date,form.serviceId,form.vehicleId,queryKey,membershipCoverage,request]);
   function update<K extends keyof Form>(key:K,value:Form[K]){setForm(f=>({...f,[key]:value,...(['serviceId','vehicleId','date'].includes(key)?{time:''}:{})}));setError('');}
   const service=catalog?.services.find(item=>item.id===form.serviceId),vehicle=catalog?.vehicles.find(item=>item.id===form.vehicleId);
-  const total=(service?.price||0)+(vehicle?.surcharge||0),duration=(service?.duration||0)+(vehicle?.durationExtra||0);
+  const total=membershipCoverage?0:(service?.price||0)+(vehicle?.surcharge||0),duration=(service?.duration||0)+(vehicle?.durationExtra||0);
   async function next(){
     setError('');
     if(step===0&&(!service||!vehicle)){setError('Choose your service and vehicle size.');return;}
@@ -53,19 +70,19 @@ function BookingForm({initialService,user}:{initialService?:string;user:Customer
     if(sendingRef.current)return;
     sendingRef.current=true;setSending(true);
     try{
-      const {booking}=await auth.request<{booking:Receipt}>('/api/bookings',{method:'POST',body:JSON.stringify({...form,email:form.email.trim()})});
+      const {booking}=await auth.request<{booking:Receipt}>('/api/bookings',{method:'POST',body:JSON.stringify({...form,email:form.email.trim(),...(membershipCoverage?{coverage:'membership'}:{})})});
       // Submission succeeded even if local secure storage fails. Never invite a duplicate request.
       setReceipt(booking);setStorageError('');
       try{if(!user)await saveReceipt(booking);}catch{setStorageError('Your booking was submitted, but could not be saved on this phone. Save the reference shown here.');}
     }catch(e){setError((e as Error).message);}finally{setSending(false);sendingRef.current=false;}
   }
   function reset(){setReceipt(null);setForm(initialForm());setStep(0);setError('');setStorageError('');}
-  if(receipt)return <Screen><Title eyebrow="REQUEST RECEIVED">You’re on our list.</Title><View style={s.card}><View style={s.badge}><Text style={s.badgeText}>AWAITING CONFIRMATION</Text></View><Text style={s.cardTitle}>{receipt.reference}</Text><Text style={s.body}>{receipt.serviceName} · {receipt.vehicleName}</Text><Text style={s.body}>{dateLabel(receipt.date)} at {timeLabel(receipt.time)}{ '\n'}New York time</Text><Text style={s.price}>{dollars(receipt.total)}</Text><Text style={s.body}>We’ll review your requested time and workspace before accepting your appointment. No payment has been taken.</Text></View><ErrorNotice message={storageError}/><Button label="View my requests" onPress={()=>router.navigate('/bookings')}/><Button label="Request another detail" secondary onPress={reset}/></Screen>;
-  return <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><Screen><Title eyebrow={`YOUR FRESH START · STEP ${step+1} OF 4`} description="Appointments are reviewed before confirmation.">{['Your detail.','Your doorstep.','Your moment.','Your details.'][step]}</Title><View style={[s.progress,{width:`${(step+1)*25}%`}]}/>{step===0&&<View style={s.card}><Text style={s.body}>{user?`Booking as ${user.firstName}. This request will appear in your account.`:'Create an account to keep bookings together on every device, or continue as a guest.'}</Text>{!user&&<Button label="Sign in or create an account" secondary onPress={()=>router.navigate('/account')}/>}</View>}{catalog?.settings.preview&&<Text style={s.small}>PREVIEW · Sample prices. Booking requests are for testing.</Text>}{!catalog?<><ErrorNotice message={error}/>{error?<Button label="Retry connection" onPress={load}/>:<Loading/>}</>:<>
-    {step===0&&<><Text style={s.section}>Choose your service</Text>{catalog.services.map(item=><Choice key={item.id} title={item.name} detail={`${dollars(item.price)} · ${item.duration} min`} selected={item.id===form.serviceId} onPress={()=>update('serviceId',item.id)}/>)}<Text style={s.section}>Your vehicle</Text>{catalog.vehicles.map(item=><Choice key={item.id} title={item.name} detail={item.surcharge?`+${dollars(item.surcharge)}`:'Base price'} selected={item.id===form.vehicleId} onPress={()=>update('vehicleId',item.id)}/>)}</>}
+  if(receipt)return <Screen><Title eyebrow="REQUEST RECEIVED">You’re on our list.</Title><View style={s.card}><View style={s.badge}><Text style={s.badgeText}>AWAITING CONFIRMATION</Text></View><Text style={s.cardTitle}>{receipt.reference}</Text><Text style={s.body}>{receipt.serviceName} · {receipt.vehicleName}</Text><Text style={s.body}>{dateLabel(receipt.date)} at {timeLabel(receipt.time)}{ '\n'}New York time</Text><Text style={s.price}>{receipt.coverage==='membership'?'Included with membership':dollars(receipt.total)}</Text><Text style={s.body}>We’ll review your requested time and workspace before accepting your appointment. No payment has been taken.</Text></View><ErrorNotice message={storageError}/><Button label="View my requests" onPress={()=>router.navigate('/bookings')}/><Button label={membershipCoverage?"Back to membership":"Request another detail"} secondary onPress={membershipCoverage?()=>router.navigate('/billing'):reset}/></Screen>;
+  return <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':undefined}><Screen><Title eyebrow={`YOUR FRESH START · STEP ${step+1} OF 4`} description="Appointments are reviewed before confirmation.">{['Your detail.','Your doorstep.','Your moment.','Your details.'][step]}</Title>{membershipCoverage&&<View style={s.card}><Text style={s.cardTitle}>Included with membership</Text><Text style={s.body}>This visit uses your membership allowance. No separate payment is due.{periodEnd?` Choose an appointment before ${new Date(periodEnd*1000).toLocaleDateString('en-US',{timeZone:'America/New_York'})}.`:''}</Text><Button label="Back to membership" secondary onPress={()=>router.navigate('/billing')}/></View>}<View style={[s.progress,{width:`${(step+1)*25}%`}]}/>{step===0&&<View style={s.card}><Text style={s.body}>{user?`Booking as ${user.firstName}. This request will appear in your account.`:'Create an account to keep bookings together on every device, or continue as a guest.'}</Text>{!user&&<Button label="Sign in or create an account" secondary onPress={()=>router.navigate('/account')}/>}</View>}{catalog?.settings.preview&&<Text style={s.small}>PREVIEW · Sample prices. Booking requests are for testing.</Text>}{!catalog?<><ErrorNotice message={error}/>{error?<Button label="Retry connection" onPress={load}/>:<Loading/>}</>:<>
+    {step===0&&<><Text style={s.section}>Choose your service</Text>{catalog.services.map(item=><Choice key={item.id} title={item.name} detail={`${membershipCoverage?'Included':dollars(item.price)} · ${item.duration} min`} selected={item.id===form.serviceId} onPress={()=>update('serviceId',item.id)}/>)}<Text style={s.section}>Your vehicle</Text>{catalog.vehicles.map(item=><Choice key={item.id} title={item.name} detail={membershipCoverage?'Included':item.surcharge?`+${dollars(item.surcharge)}`:'Base price'} selected={item.id===form.vehicleId} onPress={()=>update('vehicleId',item.id)}/>)}</>}
     {step===1&&<><Field label="NYC ZIP code" value={form.zip} onChangeText={v=>update('zip',v)} keyboardType="number-pad" maxLength={5} autoComplete="postal-code"/><Field label="Street address" value={form.address} onChangeText={v=>update('address',v)} maxLength={200} autoComplete="street-address"/><Field label="Apartment / unit (optional)" value={form.unit} onChangeText={v=>update('unit',v)} maxLength={80}/><Text style={s.section}>Where will you park?</Text>{[['driveway','Private driveway'],['private-lot','Private parking lot'],['garage','Garage'],['street','Street parking']].map(([id,name])=><Choice key={id} title={name} selected={form.parking===id} onPress={()=>update('parking',id)}/>)}<Text style={s.small}>We’ll confirm parking permission, workspace, and water or power needs. Street locations need an access review.</Text><Field label="Access notes (optional)" value={form.notes} onChangeText={v=>update('notes',v)} multiline maxLength={2000}/></>}
     {step===2&&<><Text style={s.section}>Choose a date</Text><Text style={s.body}>All dates and times are in New York time.</Text><View style={s.wrap}>{Array.from({length:14},(_,i)=>offset+i).filter(i=>i<90).map(i=>{const date=nyDate(new Date(calendarStart+i*86400000));return <Pressable key={date} accessibilityRole="radio" accessibilityState={{checked:form.date===date}} accessibilityLabel={dateLabel(date)} style={[s.chip,form.date===date&&s.chipSelected]} onPress={()=>update('date',date)}><Text style={s.label}>{dateLabel(date)}</Text></Pressable>;})}</View><View style={s.row}><Button label="← Earlier" secondary disabled={offset===0} onPress={()=>setOffset(Math.max(0,offset-14))}/><Button label="Later →" secondary disabled={offset>=84} onPress={()=>setOffset(offset+14)}/></View><Text style={s.section}>Arrival time · {dateLabel(form.date)}</Text><ErrorNotice message={slotError}/>{loadingSlots?<Loading/>:slots.length?<View style={s.wrap}>{slots.map(time=><Pressable key={time} accessibilityRole="radio" accessibilityState={{checked:form.time===time}} style={[s.chip,form.time===time&&s.chipSelected]} onPress={()=>update('time',time)}><Text style={s.label}>{timeLabel(time)}</Text></Pressable>)}</View>:!slotError&&<Text style={s.body}>No times available. Please choose another date.</Text>}</>}
-    {step===3&&<><View style={s.card}><Text style={s.cardTitle}>{service?.name}</Text><Text style={s.body}>{vehicle?.name} · {duration} minutes{ '\n'}{dateLabel(form.date)}, {timeLabel(form.time)} · New York{ '\n'}{form.address}, {form.zip}</Text><Text style={s.price}>{dollars(total)}</Text></View><Field label="First name" value={form.firstName} onChangeText={v=>update('firstName',v)} maxLength={80} autoComplete="given-name"/><Field label="Last name" value={form.lastName} onChangeText={v=>update('lastName',v)} maxLength={80} autoComplete="family-name"/><Field label="Email" editable={!user} value={form.email} onChangeText={v=>update('email',v)} keyboardType="email-address" autoCapitalize="none" autoComplete="email" maxLength={200}/><Field label="Phone number" value={form.phone} onChangeText={v=>update('phone',v)} keyboardType="phone-pad" autoComplete="tel" maxLength={30}/><Pressable accessibilityRole="checkbox" accessibilityState={{checked:form.consent}} onPress={()=>update('consent',!form.consent)} style={[s.card,form.consent&&s.selected]}><Text style={s.body}>{form.consent?'☑':'☐'} I understand this is a booking request awaiting confirmation. No payment is due now.</Text></Pressable></>}
-    <ErrorNotice message={error}/>{service&&step!==3&&<Text style={s.cardTitle}>Estimated total · {dollars(total)}</Text>}<Button label={sending?'Submitting…':step===3?'Request appointment':'Continue →'} disabled={sending||(step===2&&loadingSlots)} onPress={next}/>{step>0&&<Button label="Back" secondary disabled={sending} onPress={()=>{setStep(step-1);setError('');}}/>}
+    {step===3&&<><View style={s.card}><Text style={s.cardTitle}>{service?.name}</Text><Text style={s.body}>{vehicle?.name} · {duration} minutes{ '\n'}{dateLabel(form.date)}, {timeLabel(form.time)} · New York{ '\n'}{form.address}, {form.zip}</Text><Text style={s.price}>{membershipCoverage?'Included with membership':dollars(total)}</Text></View><Field label="First name" value={form.firstName} onChangeText={v=>update('firstName',v)} maxLength={80} autoComplete="given-name"/><Field label="Last name" value={form.lastName} onChangeText={v=>update('lastName',v)} maxLength={80} autoComplete="family-name"/><Field label="Email" editable={!user} value={form.email} onChangeText={v=>update('email',v)} keyboardType="email-address" autoCapitalize="none" autoComplete="email" maxLength={200}/><Field label="Phone number" value={form.phone} onChangeText={v=>update('phone',v)} keyboardType="phone-pad" autoComplete="tel" maxLength={30}/><Pressable accessibilityRole="checkbox" accessibilityState={{checked:form.consent}} onPress={()=>update('consent',!form.consent)} style={[s.card,form.consent&&s.selected]}><Text style={s.body}>{form.consent?'☑':'☐'} I understand this is a booking request awaiting confirmation. No payment is due now.</Text></Pressable></>}
+    <ErrorNotice message={error}/>{service&&step!==3&&<Text style={s.cardTitle}>{membershipCoverage?'Included with membership':`Estimated total · ${dollars(total)}`}</Text>}<Button label={sending?'Submitting…':step===3?'Request appointment':'Continue →'} disabled={sending||(step===2&&loadingSlots)} onPress={next}/>{step>0&&<Button label="Back" secondary disabled={sending} onPress={()=>{setStep(step-1);setError('');}}/>}
   </>}</Screen></KeyboardAvoidingView>;
 }

@@ -44,6 +44,7 @@ export function CustomerAuthProvider({ children }) {
 
   const request = useCallback(async (path, options = {}) => {
     const requestGeneration = generation.current;
+    const requestIdentity = { user: current.current.user?.id, csrfToken: current.current.csrfToken };
     const response = await fetch(path, {
       ...options, credentials: 'same-origin', cache: 'no-store',
       headers: { 'Content-Type': 'application/json', ...(current.current.csrfToken ? { 'X-CSRF-Token': current.current.csrfToken } : {}), ...options.headers },
@@ -53,6 +54,7 @@ export function CustomerAuthProvider({ children }) {
       if (response.status === 401 && requestGeneration === generation.current && !['/api/customer/login', '/api/customer/register'].includes(path)) clearSession();
       throw new Error(data.error || 'Something went wrong. Please try again.');
     }
+    if (requestIdentity.user !== current.current.user?.id || requestIdentity.csrfToken !== current.current.csrfToken) throw new Error('Your account changed. Please try again.');
     return data;
   }, [clearSession]);
 

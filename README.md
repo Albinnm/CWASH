@@ -40,13 +40,19 @@ Optional settings can be copied from `.env.example` into `.env`. The app loads `
 - Admin editing of service prices/durations, working days/hours, days off, coverage prefixes, travel buffer, and advance notice. Estimates already stored on bookings stay unchanged when prices change.
 - SQLite persistence, password hashing, seven-day customer sessions and eight-hour admin sessions, server-side validation, and booking/login rate limits. Web sessions use HttpOnly cookies and CSRF protection; the native app keeps its customer session token in OS-protected SecureStore.
 
+## Payments and memberships
+
+Stripe Checkout supports confirmed booking payments and one monthly membership: one introductory full detail followed by weekly maintenance. Included visits are tracked separately and have a zero balance; extra detailing is charged normally. Customers can manage billing and cancel their subscription through Stripe's portal. Admins can review payment and subscription status.
+
+Payments remain disabled without your Stripe configuration. No price has been chosen and no live Stripe resources or charges have been created. Follow [Stripe setup and testing](docs/STRIPE-SETUP.md) before enabling real payments. Sandbox validation with your account and real-device testing are still required.
+
 ## First business setup
 
 Sign in to `/admin`, open **Business settings**, and replace sample prices and availability with your real terms. The default coverage prefixes cover the five NYC boroughs broadly; this is not address verification. Review parking, exact location, water/power requirements, and travel feasibility manually before accepting a request. The single calendar assumes one detailing crew. Route optimization is not included.
 
 Leave the customer preview notice enabled until your prices and operating details are ready. Vehicle surcharges are currently configured in `server/store.js` ($0 sedan, $30 SUV, $50 large vehicle). Disable the preview notice in Business settings when ready.
 
-Booking references appear on the customer confirmation screen and signed-in customers can refresh their booking history for status updates. **No email, SMS, or payment is sent or processed.** Contact customers directly to confirm or change bookings. Email verification, forgotten-password recovery, email changes, account deletion, self-service cancellation, payments, reminders, and staff assignment are not implemented.
+Booking references appear on the customer confirmation screen and signed-in customers can refresh their booking history for status updates. **CWASH does not send email or SMS.** Configured Stripe checkout handles signed-in customer payments after approval; see the [Stripe setup guide](docs/STRIPE-SETUP.md). Contact customers directly to confirm or change bookings. Email verification, forgotten-password recovery, email changes, account deletion, self-service booking cancellation, reminders, and staff assignment are not implemented.
 
 ## Data and deployment
 

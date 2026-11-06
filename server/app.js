@@ -7,11 +7,14 @@ import { hashPassword, verifyPassword } from './store.js';
 import { getSlots, validDate, TIMEZONE } from './scheduling.js';
 import { deploymentSettings } from './deployment.js';
 import { customerAuth } from './customers.js';
+import { createBilling } from './billing.js';
+import { createMembership, maintenanceService, MembershipError } from './membership.js';
 
 const dateSchema = z.string().refine(validDate, 'Enter a valid date.');
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const text = (max) => z.string().trim().min(1).max(max);
 const bookingSchema = z.object({
+  coverage: z.enum(['standard', 'membership']).default('standard'),
   serviceId: text(50), vehicleId: text(50), date: dateSchema, time: timeSchema,
   firstName: text(80), lastName: text(80), email: z.email().max(200).transform(v => v.toLowerCase()),
   phone: z.string().trim().min(10).max(30).refine(v => /^\+?[\d\s().-]+$/.test(v) && v.replace(/\D/g, '').length >= 10, 'Enter a valid phone number.'),
@@ -34,17 +37,21 @@ function parse(schema, input, res) {
   if (!r.success) { fail(res, 400, r.error.issues.map(i => `${i.path.join('.') || 'Request'}: ${i.message}`).join(' ')); return null; }
   return r.data;
 }
-function selection(store, serviceId, vehicleId) {
+function selection(store, serviceId, vehicleId, coverage = 'standard') {
   const c = store.getCatalog();
-  const service = c.services.find(s => s.id === serviceId), vehicle = c.vehicles.find(v => v.id === vehicleId);
-  return service && vehicle ? { service, vehicle, total: service.price + vehicle.surcharge, duration: service.duration + vehicle.durationExtra } : null;
+  if (coverage === 'membership' && !['full', 'maintenance'].includes(serviceId)) return null;
+  const service = coverage === 'membership' && serviceId === 'maintenance' ? maintenanceService : c.services.find(s => s.id === serviceId), vehicle = c.vehicles.find(v => v.id === vehicleId);
+  return service && vehicle ? { service, vehicle, total: coverage === 'membership' ? 0 : service.price + vehicle.surcharge, duration: service.duration + vehicle.durationExtra } : null;
 }
 
-export function createApp({ store, rateLimits = true, production = false, deployment = deploymentSettings({ production }) }) {
+export function createApp({ store, rateLimits = true, production = false, deployment = deploymentSettings({ production }), billingEnv = process.env, billingClient }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', deployment.trustProxyHops);
   app.use(helmet({ contentSecurityPolicy: production ? { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:'], connectSrc: ["'self'"], upgradeInsecureRequests: null } } : false, strictTransportSecurity: process.env.COOKIE_SECURE === 'true' ? undefined : false }));
+  const billing = createBilling({ store, env: billingEnv, client: billingClient, rateLimits });
+  const membership = createMembership({ store, getMembership: billing.getMembership });
+  app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), billing.webhook);
   app.use(express.json({ limit: '20kb' }));
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many login attempts. Try again in 15 minutes.' }, skip: () => !rateLimits });
@@ -81,35 +88,48 @@ export function createApp({ store, rateLimits = true, production = false, deploy
     next();
   });
   const customers = customerAuth({ store, rateLimits });
+  app.use('/api/customer', billing.customerRouter(customers.authorize, membership.benefits));
   app.use('/api/customer', customers.router);
   app.get('/api/health', (_req, res) => {
     try { store.db.prepare('SELECT 1 AS ready').get(); res.json({ status: 'ok' }); }
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
-  app.get('/api/catalog', (_req, res) => res.json(store.getCatalog()));
-  app.get('/api/availability', (req, res) => {
-    const input = parse(z.object({ date: dateSchema, serviceId: text(50), vehicleId: text(50) }), req.query, res);
+  app.get('/api/catalog', (_req, res) => res.json({ ...store.getCatalog(), membershipService: maintenanceService }));
+  app.get('/api/availability', customers.optionalBookingAuth, (req, res) => {
+    const input = parse(z.object({ date: dateSchema, serviceId: text(50), vehicleId: text(50), coverage: z.enum(['standard','membership']).default('standard') }), req.query, res);
     if (!input) return;
-    const selected = selection(store, input.serviceId, input.vehicleId);
+    const selected = selection(store, input.serviceId, input.vehicleId, input.coverage);
     if (!selected) return fail(res, 400, 'Choose a valid service and vehicle.');
-    res.json({ slots: getSlots(store, { date: input.date, duration: selected.duration }), timezone: TIMEZONE });
+    if (input.coverage === 'membership' && !req.customer) return fail(res,401,'Sign in to use your membership.');
+    if (input.coverage === 'membership' && !membership.benefits(req.customer.user.id).active) return fail(res,403,'An active paid membership is required for included visits.');
+    let slots = getSlots(store, { date: input.date, duration: selected.duration });
+    if (input.coverage === 'membership') slots = slots.filter(time => {
+      try { membership.validateReservation(req.customer.user.id, { ...input, time }); return true; }
+      catch (e) { if (e instanceof MembershipError) return false; throw e; }
+    });
+    res.json({ slots, timezone: TIMEZONE });
   });
   app.post('/api/bookings', bookingLimiter, customers.optionalBookingAuth, (req, res) => {
     const input = parse(bookingSchema, req.customer ? { ...req.body, email:req.customer.user.email } : req.body, res); if (!input) return;
-    const selected = selection(store, input.serviceId, input.vehicleId);
+    const selected = selection(store, input.serviceId, input.vehicleId, input.coverage);
     if (!selected) return fail(res, 400, 'Choose a valid service and vehicle.');
     if (!store.getCatalog().settings.zipPrefixes.some(prefix => input.zip.startsWith(prefix))) return fail(res, 400, 'This ZIP code is outside our current service area.');
     if (!getSlots(store, { date: input.date, duration: selected.duration }).includes(input.time)) return fail(res, 409, 'That appointment is no longer available. Please choose another time.');
     const b = { ...input, id: randomUUID(), reference: `CW-${randomBytes(5).toString('hex').toUpperCase()}`, status: 'pending', serviceName: selected.service.name, vehicleName: selected.vehicle.name, total: selected.total, duration: selected.duration, createdAt: new Date().toISOString() };
+    if (input.coverage === 'membership') {
+      membership.validateReservation(req.customer?.user.id, b);
+      b.membershipIncluded = true;
+    }
     const accessToken = req.customer ? null : randomBytes(32).toString('hex');
     store.db.exec('BEGIN IMMEDIATE');
     try {
       store.db.prepare('INSERT INTO bookings (id,reference,date,time,status,value) VALUES (?,?,?,?,?,?)').run(b.id, b.reference, b.date, b.time, b.status, JSON.stringify(b));
       if (accessToken) store.db.prepare('INSERT INTO booking_access (booking_id,token_hash) VALUES (?,?)').run(b.id, tokenHash(accessToken));
       if (req.customer) store.db.prepare('INSERT INTO booking_customers (booking_id,user_id) VALUES (?,?)').run(b.id,req.customer.user.id);
+      if (b.membershipIncluded) membership.reserve(req.customer.user.id, b);
       store.db.exec('COMMIT');
     } catch (error) { store.db.exec('ROLLBACK'); throw error; }
-    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration, ...(accessToken ? {accessToken} : {}) } });
+    res.status(201).json({ booking: { reference: b.reference, status: b.status, serviceName: b.serviceName, vehicleName: b.vehicleName, date: b.date, time: b.time, total: b.total, duration: b.duration, coverage: b.coverage, membershipIncluded: !!b.membershipIncluded, ...(accessToken ? {accessToken} : {}) } });
   });
   app.get('/api/bookings/:reference', (req, res) => {
     const token = req.headers.authorization?.replace(/^Bearer /, '');
@@ -140,9 +160,11 @@ export function createApp({ store, rateLimits = true, production = false, deploy
     store.db.prepare('DELETE FROM sessions WHERE token=?').run(req.adminSession.token);
     res.clearCookie('cwash_session', cookieOptions); res.json({ ok: true });
   });
+  app.get('/api/admin/billing', billing.adminSummary);
   app.get('/api/admin/bookings', (_req, res) => res.json({ bookings: store.db.prepare('SELECT value FROM bookings ORDER BY date,time').all().map(r => JSON.parse(r.value)) }));
-  app.patch('/api/admin/bookings/:id', (req, res) => {
+  app.patch('/api/admin/bookings/:id', async (req, res) => {
     const input = parse(z.object({ status: statusSchema.optional(), date: dateSchema.optional(), time: timeSchema.optional() }).strict().refine(v => Object.keys(v).length > 0, 'No changes provided.'), req.body, res); if (!input) return;
+    try { await billing.bookingChange(req.params.id, input.status === 'cancelled', () => {
     store.db.exec('BEGIN IMMEDIATE');
     try {
       const row = store.db.prepare('SELECT value FROM bookings WHERE id=?').get(req.params.id);
@@ -155,10 +177,12 @@ export function createApp({ store, rateLimits = true, production = false, deploy
       if ((b.status === 'confirmed' && old.status !== 'confirmed') || rescheduled) {
         if (!getSlots(store, { date: b.date, duration: b.duration, excludeId: b.id, noticeHours: 0 }).includes(b.time)) { store.db.exec('ROLLBACK'); return fail(res, 409, 'This time conflicts with availability or another confirmed appointment.'); }
       }
+      membership.validateAdminChange(old, b);
       b.updatedAt = new Date().toISOString();
       store.db.prepare('UPDATE bookings SET date=?,time=?,status=?,value=? WHERE id=?').run(b.date,b.time,b.status,JSON.stringify(b),b.id);
       store.db.exec('COMMIT'); res.json({ booking: b });
     } catch (e) { store.db.exec('ROLLBACK'); throw e; }
+    }); } catch (e) { if (e.billingStatus) return fail(res,e.billingStatus,e.message); throw e; }
   });
   app.put('/api/admin/settings', (req, res) => {
     const input = parse(settingsSchema, req.body, res); if (!input) return;
@@ -174,6 +198,7 @@ export function createApp({ store, rateLimits = true, production = false, deploy
   });
   app.use('/api', (_req, res) => fail(res, 404, 'API endpoint not found.'));
   app.use((err, _req, res, _next) => {
+    if (err instanceof MembershipError) return fail(res, err.status, err.message);
     if (err.type === 'entity.parse.failed') return fail(res, 400, 'Invalid JSON request.');
     if (err.type === 'entity.too.large') return fail(res, 413, 'Request too large.');
     console.error('Request failed:', err.name);

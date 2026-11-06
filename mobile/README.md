@@ -12,7 +12,13 @@ For an installed iPhone app that works without your computer, use the [hosted ba
 - Customer email/password signup and sign-in in **Account**, editable name/phone, and password changes. Passwords require at least 12 characters; changing one revokes every session for that customer. Customer sessions last seven days and their tokens are kept in OS-protected SecureStore; admin accounts remain separate and have eight-hour sessions.
 - Account bookings shared with the website when both connect to the same backend. Sign in before booking to save a request to the account and fill contact details automatically. Pull down in **My bookings** for the latest status after admin confirmation, cancellation, or rescheduling.
 - Guest checkout remains available. Guest receipts and private per-booking access keys are stored in SecureStore on that phone; knowing a reference alone does not allow someone to read a booking. Guest history stays separate and is not automatically linked to an account by matching email.
-- Email verification, forgotten-password recovery, email changes, account deletion, push notifications, payments, and self-service cancellation are not implemented.
+- Email verification, forgotten-password recovery, email changes, account deletion, push notifications and self-service booking cancellation are not implemented.
+
+## Payments and membership
+
+Open **Account → Membership & billing** to view the configured monthly plan, open Stripe Checkout, manage billing, or book included visits. Confirmed extra-service bookings offer payment in **My bookings**. Included visits have no extra payment. Stripe opens in your browser; return to the app and refresh to see verified server status. No card data or secret Stripe keys are stored in the app.
+
+The membership includes one introductory full detail, then maintenance at least seven New York calendar days apart within the paid period. Visits require owner approval. Configure/test the backend using [Stripe setup](../docs/STRIPE-SETUP.md); no monthly price or live payments are enabled by default.
 
 ## Test on your phone from Windows
 

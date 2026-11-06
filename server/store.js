@@ -49,6 +49,14 @@ export function createStore({ dataDir = process.env.CWASH_DATA_DIR || './data', 
     CREATE TABLE IF NOT EXISTS customer_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE, csrf TEXT NOT NULL, expires INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('web','mobile')));
     CREATE TABLE IF NOT EXISTS booking_customers (booking_id TEXT PRIMARY KEY REFERENCES bookings(id), user_id TEXT NOT NULL REFERENCES customers(id));
     CREATE INDEX IF NOT EXISTS customer_booking_owner ON booking_customers(user_id);
+    CREATE TABLE IF NOT EXISTS billing_customers (user_id TEXT NOT NULL REFERENCES customers(id), mode TEXT NOT NULL, stripe_customer_id TEXT UNIQUE NOT NULL, PRIMARY KEY(user_id,mode));
+    CREATE TABLE IF NOT EXISTS billing_checkouts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES customers(id), mode TEXT NOT NULL, kind TEXT NOT NULL, booking_id TEXT REFERENCES bookings(id), session_id TEXT UNIQUE, state TEXT NOT NULL, request_json TEXT NOT NULL, created INTEGER NOT NULL);
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_open_booking ON billing_checkouts(mode,booking_id) WHERE booking_id IS NOT NULL AND state IN ('creating','open');
+    CREATE UNIQUE INDEX IF NOT EXISTS billing_open_membership ON billing_checkouts(mode,user_id) WHERE kind='membership' AND state IN ('creating','open');
+    CREATE TABLE IF NOT EXISTS billing_payments (booking_id TEXT NOT NULL REFERENCES bookings(id), user_id TEXT NOT NULL REFERENCES customers(id), mode TEXT NOT NULL, status TEXT NOT NULL, amount INTEGER NOT NULL, currency TEXT NOT NULL, payment_intent_id TEXT UNIQUE, PRIMARY KEY(booking_id,mode));
+    CREATE TABLE IF NOT EXISTS billing_memberships (subscription_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES customers(id), mode TEXT NOT NULL, status TEXT NOT NULL, cancel_at_period_end INTEGER NOT NULL, current_period_end INTEGER, created INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS billing_membership_entitlements (subscription_id TEXT PRIMARY KEY REFERENCES billing_memberships(subscription_id), paid_period_end INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS billing_events (id TEXT NOT NULL, mode TEXT NOT NULL, processed_at INTEGER NOT NULL, PRIMARY KEY(id,mode));
   `);
   db.prepare('INSERT OR IGNORE INTO settings (id,value) VALUES (1,?)').run(JSON.stringify(defaultSettings));
   for (const s of services) db.prepare('INSERT OR IGNORE INTO services (id,value) VALUES (?,?)').run(s.id, JSON.stringify(s));

@@ -1,7 +1,7 @@
 export type Service = {id:string;name:string;description:string;price:number;duration:number;features:string[]};
 export type Vehicle = {id:string;name:string;surcharge:number;durationExtra:number};
-export type Catalog = {services:Service[];vehicles:Vehicle[];settings:{preview:boolean;zipPrefixes:string[]}};
-export type Receipt = {reference:string;status:string;serviceName:string;vehicleName:string;date:string;time:string;total:number;duration:number;accessToken?:string};
+export type Catalog = {membershipService?:Service;services:Service[];vehicles:Vehicle[];settings:{preview:boolean;zipPrefixes:string[]}};
+export type Receipt = {coverage?:'membership'|'standard';membershipIncluded?:boolean;reference:string;status:string;serviceName:string;vehicleName:string;date:string;time:string;total:number;duration:number;accessToken?:string};
 export class ApiError extends Error {
   constructor(message:string, public status:number) { super(message); this.name='ApiError'; }
 }

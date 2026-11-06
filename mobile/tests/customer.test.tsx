@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Text } from 'react-native';
+import { AppState, Button, Text } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as SecureStore from 'expo-secure-store';
 import Account from '../src/app/account';
@@ -28,6 +28,7 @@ const guestReceipt={...receipt,reference:'CW-GUEST456',accessToken:'guest-key'};
 
 beforeEach(()=>{
   jest.resetAllMocks();
+  jest.spyOn(AppState,'addEventListener').mockReturnValue({remove:jest.fn()});
   (SecureStore.getItemAsync as jest.Mock).mockResolvedValue(null);
   (SecureStore.setItemAsync as jest.Mock).mockResolvedValue(undefined);
   (SecureStore.deleteItemAsync as jest.Mock).mockResolvedValue(undefined);
@@ -38,6 +39,7 @@ beforeEach(()=>{
     if(['/api/customer/login','/api/customer/register'].includes(path))return {user,token};
     if(path==='/api/customer/logout')return {ok:true};
     if(path==='/api/customer/bookings')return {bookings:[receipt]};
+    if(path==='/api/customer/billing')return {enabled:false,mode:null,plan:null,membership:null,canManage:false,payments:[]};
     throw new Error(`Unexpected API request: ${path}`);
   });
 });
